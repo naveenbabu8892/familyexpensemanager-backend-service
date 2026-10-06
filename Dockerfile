@@ -7,6 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_CACHE_DIR=/tmp/.cache/uv \
     PORT=8000 \
     PATH="/app/.venv/bin:$PATH"
 
@@ -27,7 +28,7 @@ COPY --from=uv_bin /uv /bin/uv
 RUN groupadd -r appgroup && useradd -r -g appgroup -d /app -s /sbin/nologin appuser
 
 # Install dependencies using uv (cached layer)
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-install-project --no-dev
 
 # Copy application source code
@@ -35,6 +36,9 @@ COPY --chown=appuser:appgroup . .
 
 # Complete project installation with uv
 RUN uv sync --no-dev
+
+# Ensure /app ownership and create writable uv cache directory in /tmp
+RUN chown -R appuser:appgroup /app && mkdir -p /tmp/.cache/uv && chown -R appuser:appgroup /tmp/.cache
 
 # Switch to non-root user
 USER appuser
@@ -44,7 +48,7 @@ EXPOSE 8000
 
 # Health check instruction
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health/live || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health/live || exit 1
 
-# Start Uvicorn production server using uv run
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start Uvicorn production server directly with dynamic PORT
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
